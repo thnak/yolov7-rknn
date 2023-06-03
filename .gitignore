@@ -20,12 +20,14 @@ models/best_saved_model/
 *.pt
 *.pth
 *.onnx
+*.rknn
 *.tflite
 *.mp3
 *.mp4
 *.zip
 *.rar
 *.tar
+*.whl
 
 TrainRes/train
 TrainRes/val

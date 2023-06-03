@@ -1,3 +1,4 @@
+import cv2
 from rknn.api import RKNN
 from rknn import *
 import numpy as np
@@ -8,12 +9,10 @@ from utils.general import non_max_suppression
 
 
 class RKNN_model(object):
-    def __init__(self, model_path: list[str|Path], verbose: bool, quantization=False,
+    def __init__(self, model_path: str, verbose: bool, quantization=False,
                  dataset=None, target=None, target_sub_class=None, device_id=None, core_mask=RKNN.NPU_CORE_AUTO):
         model_path = Path(model_path)
         dataset = Path(dataset)
-        self.model = RKNN(verbose=verbose)
-        self.model.config(mean_values=[[0, 0, 0]], std_values=[[255, 255, 255]])
         model_path = model_path.with_suffix('.onnx')
 
         providers = ort.get_available_providers()
@@ -51,9 +50,21 @@ class RKNN_model(object):
         self.anchor_grid = torch.tensor(anchors).view(len(self.model_outputs), 1, -1, 1, 1, 2)
 
         del session, providers, session_opt
+        if self.use_reorg:
+            with open(dataset.as_posix(), 'r') as data:
+                dataset_imgs = data.read()
+            for i, x in enumerate(dataset_imgs):
+                x = Path(x)
+                if x.is_file():
+                    img = cv2.imread(x.as_posix())
 
+        input_channels = 12 if self.use_reorg else 3
+        self.model = RKNN(verbose=verbose)
+        self.model.config(mean_values=[[0 for x in range(input_channels)]], std_values=[[255 for x in range(input_channels)]])
         if target is None:
-            if self.model.load_onnx(model=model_path.as_posix()) == 0:
+            if self.model.load_onnx(model=model_path.as_posix(), inputs=self.model_inputs,
+                                    input_size_list=[self.input_shape], outputs=self.model_outputs) == 0:
+
                 self.model.build(do_quantization=quantization, dataset=dataset.as_posix(), rknn_batch_size=None)
                 self.model.export_rknn(model_path.with_suffix('.rknn').as_posix())
             else:
@@ -64,12 +75,15 @@ class RKNN_model(object):
 
         self.model.init_runtime(target=target, target_sub_class=target_sub_class, device_id=device_id,
                                 core_mask=core_mask)
+        if self.use_reorg:
+            self.input_shape[2:] = [x*2 for x in self.input_shape[2:]]
 
     def __call__(self, inputs):
         outputs = []
         if self.use_reorg:
-            inputs = np.concatenate([inputs[:, :, ::2, ::2], inputs[:, :, 1::2, ::2], inputs[:, :, ::2, 1::2], inputs[:, :, 1::2, 1::2]], 1)
-        preds = self.model.inference(inputs=[inputs], data_format='nhwc') #ncwh is not supported
+            print(f'debug: {inputs.shape}, {self.input_shape}')
+            inputs = self.reorg(inputs)
+        preds = self.model.inference(inputs=[inputs], data_format='nchw')
         for i, pred in enumerate(preds):
             pred = torch.tensor(pred)
             bs, _, ny, nx = pred.shape
@@ -103,3 +117,14 @@ class RKNN_model(object):
                                       device=z.device)
         box @= convert_matrix
         return box, score
+
+    @staticmethod
+    def reorg(inputs: np.ndarray):
+        if isinstance(inputs, np.ndarray):
+            if inputs.ndim == 3:
+                inputs = np.expand_dims(inputs, 0)
+        if isinstance(inputs, torch.Tensor):
+            if inputs.dim == 3:
+                inputs = torch.unsqueeze(inputs, 0)
+        return np.concatenate([inputs[:, :, ::2, ::2], inputs[:, :, 1::2, ::2], inputs[:, :, ::2, 1::2], inputs[:, :, 1::2, 1::2]], 1)
+

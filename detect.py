@@ -5,7 +5,7 @@ import cv2
 from pathlib import Path
 from utils.datasets import LoadImages
 
-ONNX_MODEL = Path('yolov7-tiny.onnx')
+ONNX_MODEL = Path('yolov7-e6.onnx')
 DATASET = Path('dataset.txt')
 
 if DATASET.exists():

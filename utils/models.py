@@ -64,6 +64,7 @@ class RKNN_model(object):
                     img_ = [img[::2, ::2, :], img[1::2, ::2, :], img[::2, 1::2, :], img[1::2, 1::2, :]]
                     img_ = np.concatenate(img_, axis=2)
                     img_ = np.transpose(img_, [2, 0, 1])
+                    img_ = np.expand_dims(img_, 0)
                     f = data_dir / f"feed_{i}.npy"
                     np.save(f.as_posix(), img_)
                     datas += f"{f.as_posix()}\n"

@@ -1,6 +1,5 @@
 import cv2
 from rknn.api import RKNN
-from rknn import *
 import numpy as np
 from pathlib import Path
 import onnxruntime as ort
@@ -43,11 +42,11 @@ class RKNN_model(object):
 
         anchors = eval(meta_datas.get('anchors', None))
         self.nl = len(anchors)
-        self.na = len(anchors[0]) // 2  # number of anchors
-        self.grid = [torch.zeros(1)] * self.nl  # init grid
+        self.na = len(anchors[0])  # number of anchors
 
         self.anchors = torch.tensor(anchors)
-        self.anchor_grid = torch.tensor(anchors).view(len(self.model_outputs), 1, -1, 1, 1, 2)
+        anchor_gid = eval(meta_datas.get("anchor_grid", None))
+        self.anchor_grid = torch.tensor(anchor_gid)
 
         del session, providers, session_opt
         if self.use_reorg:
@@ -60,7 +59,8 @@ class RKNN_model(object):
 
         input_channels = 12 if self.use_reorg else 3
         self.model = RKNN(verbose=verbose)
-        self.model.config(mean_values=[[0 for x in range(input_channels)]], std_values=[[255 for x in range(input_channels)]])
+        self.model.config(mean_values=[[0 for x in range(input_channels)]],
+                          std_values=[[255 for x in range(input_channels)]])
         if target is None:
             if self.model.load_onnx(model=model_path.as_posix(), inputs=self.model_inputs,
                                     input_size_list=[self.input_shape], outputs=self.model_outputs) == 0:
@@ -76,28 +76,26 @@ class RKNN_model(object):
         self.model.init_runtime(target=target, target_sub_class=target_sub_class, device_id=device_id,
                                 core_mask=core_mask)
         if self.use_reorg:
-            self.input_shape[2:] = [x*2 for x in self.input_shape[2:]]
+            self.input_shape[2:] = [x * 2 for x in self.input_shape[2:]]
 
-    def __call__(self, inputs):
+    def __call__(self, inputs, conf_thres=0.45, iou_thes=.25):
         outputs = []
         if self.use_reorg:
-            print(f'debug: {inputs.shape}, {self.input_shape}')
             inputs = self.reorg(inputs)
         preds = self.model.inference(inputs=[inputs], data_format='nchw')
         for i, pred in enumerate(preds):
             pred = torch.tensor(pred)
             bs, _, ny, nx = pred.shape
+
             grid = self._make_grid(nx, ny).to(pred.device)
-            pred = pred.view(bs, self.na, self.nc+5, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
+            pred = pred.view(bs, self.na, self.nc + 5, ny, nx)
+            pred = pred.permute(0, 1, 3, 4, 2).contiguous()
             y = pred.sigmoid()
-            xy, wh, conf = y.split((2, 2, self.nc + 1), 4)
-            xy = xy * (2. * self.stride[i]) + (self.stride[i] * (grid - 0.5))
-            wh = wh ** 2 * (4 * self.anchor_grid[i].data)  # new wh
-            y = torch.cat((xy, wh, conf), 4)
-            outputs.append(y.view(bs, self.na * nx * ny, self.nc+5))
+            y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid) * self.stride[i]  # xy
+            y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+            outputs.append(y.view(bs, self.na * nx * ny, self.nc + 5))
 
-        return non_max_suppression(torch.cat(outputs, dim=1))
-
+        return non_max_suppression(torch.cat(outputs, dim=1), conf_thres=conf_thres, iou_thres=iou_thes)
 
     @staticmethod
     def _make_grid(nx=20, ny=20):
@@ -126,5 +124,5 @@ class RKNN_model(object):
         if isinstance(inputs, torch.Tensor):
             if inputs.dim == 3:
                 inputs = torch.unsqueeze(inputs, 0)
-        return np.concatenate([inputs[:, :, ::2, ::2], inputs[:, :, 1::2, ::2], inputs[:, :, ::2, 1::2], inputs[:, :, 1::2, 1::2]], 1)
-
+        return np.concatenate(
+            [inputs[:, :, ::2, ::2], inputs[:, :, 1::2, ::2], inputs[:, :, ::2, 1::2], inputs[:, :, 1::2, 1::2]], 1)

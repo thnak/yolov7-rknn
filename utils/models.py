@@ -49,13 +49,28 @@ class RKNN_model(object):
         self.anchor_grid = torch.tensor(anchor_gid)
 
         del session, providers, session_opt
-        if self.use_reorg:
+        if self.use_reorg and quantization:
             with open(dataset.as_posix(), 'r') as data:
                 dataset_imgs = data.read()
+            data_dir = Path("data")
+            data_dir.mkdir(exist_ok=True)
+            datas = ""
+            dataset_imgs = dataset_imgs.split("\n")
             for i, x in enumerate(dataset_imgs):
                 x = Path(x)
                 if x.is_file():
                     img = cv2.imread(x.as_posix())
+                    img = cv2.resize(img, (1280, 1280))
+                    h, w, c = img.shape
+                    img_ = [img[::2, ::2, :], img[1::2, ::2, :], img[::2, 1::2, :], img[1::2, 1::2, :]]
+                    img_ = np.concatenate(img_, axis=2)
+                    img_ = np.transpose(img_, [2, 0, 1])
+                    f = data_dir / f"feed_{i}.npy"
+                    np.save(f.as_posix(), img_)
+                    datas += f"{f.as_posix()}\n"
+            dataset = Path('dataset2.txt')
+            with open(dataset.as_posix(), "w") as f:
+                f.write(datas)
 
         input_channels = 12 if self.use_reorg else 3
         self.model = RKNN(verbose=verbose)

@@ -5,7 +5,7 @@ import cv2
 from pathlib import Path
 from utils.datasets import LoadImages
 
-ONNX_MODEL = Path('yolov7-tiny.onnx')
+ONNX_MODEL = Path('yolov7-e6.onnx')
 DATASET = Path('dataset.txt')
 
 if DATASET.exists():
@@ -22,7 +22,7 @@ else:
         s = s[:-1]
         data.write(s)
 
-model = RKNN_model(model_path=ONNX_MODEL.as_posix(), quantization=False, dataset=DATASET, verbose=True)
+model = RKNN_model(model_path=ONNX_MODEL.as_posix(), quantization=True, dataset=DATASET, verbose=True)
 names = model.names
 batch, channel, height, width = model.input_shape
 dataset = LoadImages("inference", img_size=(height, width), stride=max(model.stride), auto=False)

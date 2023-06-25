@@ -61,7 +61,6 @@ class RKNN_model(object):
                 if x.is_file():
                     img = cv2.imread(x.as_posix())
                     img = cv2.resize(img, (1280, 1280))
-                    h, w, c = img.shape
                     img_ = [img[::2, ::2, :], img[1::2, ::2, :], img[::2, 1::2, :], img[1::2, 1::2, :]]
                     img_ = np.concatenate(img_, axis=2)
                     img_ = np.transpose(img_, [2, 0, 1])
@@ -75,7 +74,9 @@ class RKNN_model(object):
         input_channels = 12 if self.use_reorg else 3
         self.model = RKNN(verbose=verbose)
         self.model.config(mean_values=[[0 for x in range(input_channels)]],
-                          std_values=[[255 for x in range(input_channels)]])
+                          std_values=[[255 for x in range(input_channels)]],
+                          compress_weight=False,
+                          model_pruning=True)
         if target is None:
             if self.model.load_onnx(model=model_path.as_posix(), inputs=self.model_inputs,
                                     input_size_list=[self.input_shape], outputs=self.model_outputs) == 0:

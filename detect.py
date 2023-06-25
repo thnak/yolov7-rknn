@@ -1,5 +1,5 @@
 from utils.models import RKNN_model
-from utils.general import scale_coords, plot_one_box
+from utils.general import scale_coords, plot_one_box, check_img_size
 import numpy as np
 import cv2
 from pathlib import Path
@@ -25,10 +25,10 @@ else:
 model = RKNN_model(model_path=ONNX_MODEL.as_posix(), quantization=False, dataset=DATASET, verbose=True)
 names = model.names
 batch, channel, height, width = model.input_shape
-
-dataset = LoadImages("inference", img_size=max(width, height), stride=model.stride, auto=width != height)
+dataset = LoadImages("inference", img_size=(height, width), stride=max(model.stride), auto=False)
 for path, img, im0s, vid_cap, s, ratio, dwdh in dataset:
-    img = np.expand_dims(img, 0)
+    if img.ndim == 3:
+        img = np.expand_dims(img, 0)
     preds = model(inputs=img)
 
     s = s.get('string', '')

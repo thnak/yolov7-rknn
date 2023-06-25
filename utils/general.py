@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torchvision
 import time
@@ -191,3 +193,14 @@ def plot_one_box(x, img, txtColor=None, bboxColor=None, label=None, frameinfo=[]
         img0 = cv2.putText(img0, label, org=(c1[0], c1[1] - 2), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=tl / 3,
                            color=txtColor, thickness=tf, lineType=cv2.LINE_AA)
     return img0
+
+def check_img_size(img_size, s=32):
+    """Verify img_size is a multiple of stride s"""
+    new_size = make_divisible(img_size, int(s))  # ceil gs-multiple
+    if new_size != img_size:
+        print('WARNING: --img-size %g must be multiple of max stride %g, updating to %g' % (img_size, s, new_size))
+    return new_size
+
+def make_divisible(x, divisor):
+    """Returns x evenly divisible by divisor"""
+    return math.ceil(x / divisor) * divisor

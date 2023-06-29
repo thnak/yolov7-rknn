@@ -91,7 +91,7 @@ class RKNN_model(object):
             assert self.model.load_rknn(model_path.as_posix()) == 0, f'error when loading rknn model'
 
         self.model.init_runtime(target=target, target_sub_class=target_sub_class, device_id=device_id,
-                                core_mask=core_mask)
+                                core_mask=core_mask, perf_debug=True, eval_mem=True)
         if self.use_reorg:
             self.input_shape[2:] = [x * 2 for x in self.input_shape[2:]]
 

@@ -1,4 +1,5 @@
 import math
+import re
 
 import torch
 import torchvision
@@ -204,3 +205,7 @@ def check_img_size(img_size, s=32):
 def make_divisible(x, divisor):
     """Returns x evenly divisible by divisor"""
     return math.ceil(x / divisor) * divisor
+
+def clean_str(s):
+    """Cleans a string by replacing special characters with underscore"""
+    return re.sub(pattern="[|@#!¡·$€%&()=?¿^*;:,¨´><+]", repl="_", string=s)

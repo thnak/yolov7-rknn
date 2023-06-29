@@ -3,7 +3,7 @@ from utils.general import scale_coords, plot_one_box, check_img_size
 import numpy as np
 import cv2
 from pathlib import Path
-from utils.datasets import LoadImages
+from utils.datasets import LoadImages, LoadStreams
 
 ONNX_MODEL = Path('yolov7-tiny.onnx')
 DATASET = Path('dataset.txt')
@@ -26,6 +26,7 @@ model = RKNN_model(model_path=ONNX_MODEL.as_posix(), quantization=True, dataset=
 names = model.names
 batch, channel, height, width = model.input_shape
 dataset = LoadImages("inference", img_size=(height, width), stride=max(model.stride), auto=False)
+# dataset = LoadStreams("0", img_size=(height, width), stride=max(model.stride), auto=False)
 for path, img, im0s, vid_cap, s, ratio, dwdh in dataset:
     if img.ndim == 3:
         img = np.expand_dims(img, 0)

@@ -1,12 +1,19 @@
+import time
+from threading import Thread
+from urllib.parse import urlparse
+
 import cv2
 import glob
 import numpy as np
 import os
 from pathlib import Path
 
+from utils.general import clean_str
+
 HELP_URL = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
 IMG_FORMATS = ['bmp', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'dng', 'webp', 'mpo', 'pfm']  # acceptable image suffixes
 VID_FORMATS = ['asf', 'mov', 'avi', 'mp4', 'mpg', 'mpeg', 'm4v', 'wmv', 'mkv', 'gif']  # acceptable video suffixes
+YOUTUBE = ('www.youtube.com', 'youtube.com', 'youtu.be', 'https://youtu.be')
 
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleUp=True, stride=32):
@@ -149,3 +156,107 @@ class LoadImages:
 
     def __len__(self):
         return self.nf  # number of files
+
+class LoadStreams:
+    def __init__(self, sources='streams.txt', img_size=(640, 640), stride=32, auto=True, scaleFill=False, scaleUp=True,
+                 vid_stride=1):
+        """_summary_
+
+        Args:
+            sources (str, optional): _description_. Defaults to 'streams.txt'.
+            img_size (int, optional): _description_. Defaults to 640.
+            stride (int, optional): _description_. Defaults to 32.
+            auto (bool, optional): _description_. Defaults to True.
+        """
+
+        self.mode = 'stream'
+        self.img_size = img_size
+        self.stride = stride
+        self.auto = auto
+        self.scaleFill = scaleFill
+        self.scaleUp = scaleUp
+        self.vid_stride = vid_stride
+        if os.path.isfile(sources):
+            with open(sources, 'r') as f:
+                sources = [x.strip() for x in f.read().strip().splitlines() if len(x.strip())]
+        else:
+            if isinstance(sources, str):
+                sources = [sources]
+        n = len(sources)
+        self.imgs, self.frames, self.threads = [None] * n, [0] * n, [None] * n
+        self.c_frame = [0] * n
+        self.sources = [clean_str(x) for x in sources]  # clean source names for later
+        for i, s in enumerate(sources):
+            if 'rtsp://' in s:
+                os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;udp'
+
+            print(f'{i + 1}/{n}: {s}... init ')
+            url = eval(s) if s.isnumeric() else s
+            if urlparse(s).hostname in YOUTUBE:  # if source is YouTube video
+                # check_requirements(('pafy', 'youtube_dl'))
+                import pafy
+                try:
+                    url = pafy.new(url).getbest(preftype="mp4").url
+                except Exception as ex:
+                    # logger.error(f'if the error come from pafy library, please report to https://github.com/thnak/pafy.git')
+                    # logger.info('attempting install pafy from git')
+                    print(f"{ex}")
+                    # os.system('pip install git+https://github.com/thnak/pafy.git')
+            cap = cv2.VideoCapture(url, cv2.CAP_ANY)
+            assert cap.isOpened(), f'Failed to open {s}'
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.frames[i] = max(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), 0) or float('inf')  # infinite stream fallback
+            self.fps = cap.get(cv2.CAP_PROP_FPS) % 100
+
+            _, self.imgs[i] = cap.read()  # guarantee first frame
+            self.threads[i] = Thread(target=self.update, args=([i, cap, url]), daemon=True)
+            print(f'success ({w}x{h} at {self.fps:.2f} FPS, {self.frames[i]} frames).')
+            self.threads[i].start()
+        print('')  # newline
+
+    def update(self, index, cap, stream):
+        # Read next stream frame in a daemon thread
+        self.c_frame[index], f = 0, self.frames[index]
+        while cap.isOpened() and self.c_frame[index] < f:
+            self.c_frame[index] += 1
+            cap.grab()
+            if self.c_frame[index] % self.vid_stride == 0:  # read every 4th frame
+                success, im = cap.retrieve()
+                if success:
+                    self.imgs[index] = im
+                else:
+                    self.imgs[index] = np.zeros_like(self.imgs[index])
+                    cap.open(stream)
+                    print('WARNING ⚠️ Video stream unresponsive, please check your IP camera connection.')
+            if self.fps != 0:
+                time.sleep(1 / self.fps)  # wait time
+            else:
+                time.sleep(1 / 30)
+
+    def __iter__(self):
+        self.count = -1
+        return self
+
+    def __next__(self):
+        self.count += 1
+        if not all(x.is_alive() for x in self.threads):
+            raise StopIteration
+        img0 = self.imgs.copy()
+        # Letterbox
+        img, ratio, dwdh = [letterbox(x, self.img_size, auto=self.auto, scaleFill=self.scaleFill, stride=self.stride)[0]
+                            for x in img0], \
+            [letterbox(x, self.img_size, auto=self.auto, scaleFill=self.scaleFill, stride=self.stride)[1] for x in
+             img0], \
+            [letterbox(x, self.img_size, auto=self.auto, scaleFill=self.scaleFill, stride=self.stride)[2] for x in
+             img0],
+        # Stack
+        img = np.stack(img, 0)
+        # Convert
+        img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
+        img = np.ascontiguousarray(img)
+
+        return self.sources, img, img0, None, {'frames': self.frames, 'c_frame': self.c_frame}, ratio, dwdh
+
+    def __len__(self):
+        return len(self.sources)
